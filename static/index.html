@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kivi — SAP Requirements Analyst</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2315171c'/%3E%3Ctext x='16' y='22' font-family='Arial' font-weight='700' font-size='17' fill='white' text-anchor='middle'%3EK%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">K</div>
+      <div>
+        <div class="wordmark">Kivi <span class="subtitle">AI Requirements Analyst</span></div>
+        <div class="badges">
+          <span class="badge badge-module">SAP EWM</span>
+          <span class="badge">AI-assisted documentation</span>
+          <span class="badge" id="ai-status">Checking AI…</span>
+        </div>
+      </div>
+    </div>
+    <button class="btn btn-ghost" id="new-btn" type="button" aria-label="New requirement">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      <span class="btn-label">New requirement</span>
+    </button>
+  </header>
+
+  <div class="container">
+    <div id="banner" class="banner" hidden></div>
+
+    <section class="intro">
+      <p class="tagline">Speak your business requirements. <strong>Get structured SAP documentation.</strong></p>
+      <ol class="stepper" id="stepper" aria-label="Analysis status">
+        <li data-step="initial"><span class="dot"></span>Initial analysis</li>
+        <li data-step="clarification"><span class="dot"></span>Clarification required</li>
+        <li data-step="ready"><span class="dot"></span>Ready for documentation</li>
+        <li data-step="generated"><span class="dot"></span>Documentation generated</li>
+      </ol>
+    </section>
+
+    <main class="workspace">
+      <!-- Requirement capture -->
+      <section class="panel capture" aria-labelledby="capture-title">
+        <div class="panel-head">
+          <span class="eyebrow">Step 1 · Capture</span>
+          <h2 id="capture-title">Describe your business process.</h2>
+          <p class="muted">Speak naturally in Hindi, Hinglish, or English. Kivi will help turn your requirements into structured SAP documentation.</p>
+        </div>
+
+        <div class="field-row">
+          <span class="label" id="lang-label">Language</span>
+          <div class="segmented" role="radiogroup" aria-labelledby="lang-label" id="lang">
+            <button type="button" role="radio" data-lang="hinglish">Hinglish</button>
+            <button type="button" role="radio" data-lang="hindi">हिन्दी</button>
+            <button type="button" role="radio" data-lang="english">English</button>
+          </div>
+        </div>
+
+        <div class="voice" id="voice">
+          <button class="mic" id="mic" type="button" aria-label="Start recording">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+          </button>
+          <div class="voice-text">
+            <div class="voice-title" id="voice-title">Tap to speak</div>
+            <div class="voice-sub muted" id="voice-sub">Up to 30 seconds per recording · transcribed by Sarvam AI</div>
+          </div>
+          <div class="voice-actions">
+            <button class="btn btn-small" id="stop-btn" type="button" hidden>Stop</button>
+            <button class="btn btn-small btn-ghost" id="retry-btn" type="button" hidden>Retry</button>
+          </div>
+        </div>
+
+        <label class="label" for="requirement">Requirement <span class="muted">(transcription appears here — edit before analyzing)</span></label>
+        <textarea id="requirement" rows="5" maxlength="4000" placeholder="e.g. Jab warehouse mein galat product pick ho, toh system delivery complete nahi hone dena chahiye."></textarea>
+        <div class="field-meta"><span id="req-note" class="muted"></span><span id="req-count" class="muted">0 / 4000</span></div>
+
+        <div class="examples">
+          <span class="label">Examples</span>
+          <button type="button" class="chip" data-example="hinglish">Jab warehouse mein galat product pick ho, toh system delivery complete nahi hone dena chahiye.</button>
+          <button type="button" class="chip" data-example="hindi">जब किसी बिन में स्टॉक कम हो जाए, तो सिस्टम अपने आप replenishment शुरू कर दे।</button>
+          <button type="button" class="chip" data-example="english">Fragile items must be packed separately, and the packer should confirm a quality check before goods issue.</button>
+        </div>
+
+        <div id="capture-error" class="inline-error" role="alert" hidden></div>
+        <button class="btn btn-primary btn-block" id="analyze-btn" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h12M12 6l6 6-6 6"/></svg>
+          Analyze requirement
+        </button>
+      </section>
+
+      <!-- Analysis -->
+      <section class="panel analysis" aria-labelledby="analysis-title" aria-live="polite">
+        <div class="panel-head">
+          <span class="eyebrow">Step 2 · Analysis &amp; clarification</span>
+          <h2 id="analysis-title">Requirement analysis</h2>
+        </div>
+        <div id="analysis-body">
+          <div class="empty">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6M10 3v5l-5 9a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-5-9V3"/></svg>
+            <p>Kivi analyzes your requirement like a functional consultant: business objective, process area, gaps and ambiguities — then asks only the questions that matter.</p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Documents -->
+    <section class="panel docs" id="docs" aria-labelledby="docs-title">
+      <div class="docs-head">
+        <div>
+          <span class="eyebrow">Step 3 · Documentation</span>
+          <h2 id="docs-title">Documentation workspace</h2>
+        </div>
+        <div class="docs-actions">
+          <button class="btn btn-ghost" id="download-all" type="button" disabled>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>
+            Download all (.md)
+          </button>
+          <button class="btn btn-primary" id="generate-btn" type="button" disabled>Generate BPD, FSD &amp; CSD</button>
+        </div>
+      </div>
+      <div class="tabs" role="tablist" id="tabs">
+        <button role="tab" data-tab="bpd"><b>BPD</b><span>Business Process Design</span><i class="tab-state"></i></button>
+        <button role="tab" data-tab="fsd"><b>FSD</b><span>Functional Specification</span><i class="tab-state"></i></button>
+        <button role="tab" data-tab="csd"><b>CSD</b><span>Configuration Specification</span><i class="tab-state"></i></button>
+      </div>
+      <div class="doc-toolbar" id="doc-toolbar" hidden>
+        <span id="doc-meta" class="muted"></span>
+        <div class="toolbar-buttons">
+          <button class="btn btn-small btn-ghost" id="copy-btn" type="button">Copy</button>
+          <button class="btn btn-small btn-ghost" id="download-btn" type="button">Download .md</button>
+          <button class="btn btn-small btn-ghost" id="regen-btn" type="button">Regenerate</button>
+        </div>
+      </div>
+      <div id="doc-error" class="inline-error" role="alert" hidden></div>
+      <article class="doc" id="doc-view"></article>
+    </section>
+
+    <footer class="footer muted">
+      Kivi generates AI-assisted drafts for consultant review. It does not connect to or configure any SAP system, and its output is not SAP-certified.
+    </footer>
+  </div>
+
+  <div class="toast" id="toast" role="status" hidden></div>
+  <script src="/demo.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
