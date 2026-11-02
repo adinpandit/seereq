@@ -1,4 +1,4 @@
-"""Kivi — AI-powered SAP requirements analyst. Run: python3 server.py"""
+"""SeeReq — AI-powered SAP requirements analyst. Run: python3 server.py"""
 
 import json
 import mimetypes
@@ -18,10 +18,10 @@ if env_file.exists():
             key, value = line.split("=", 1)
             os.environ.setdefault(key.strip(), value.strip())
 
-from kivi import ai  # noqa: E402  (needs the environment loaded first)
+from seereq import ai  # noqa: E402  (needs the environment loaded first)
 
-HOST = os.environ.get("KIVI_HOST", "127.0.0.1")
-PORT = int(os.environ.get("KIVI_PORT", "8787"))
+HOST = os.environ.get("SEEREQ_HOST", "127.0.0.1")
+PORT = int(os.environ.get("SEEREQ_PORT", "8787"))
 MAX_JSON_BYTES = 400_000
 MAX_AUDIO_BYTES = 10_000_000
 MAX_REQUIREMENT = 4000
@@ -69,7 +69,7 @@ def _history(payload):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "Kivi"
+    server_version = "SeeReq"
 
     def log_message(self, fmt, *args):
         # Request line and status only; never bodies or headers.
@@ -118,7 +118,7 @@ class Handler(BaseHTTPRequestHandler):
                     raise BadRequest("Expected an audio recording.")
                 transcript = ai.transcribe(audio, mime, language)
                 if not transcript:
-                    raise ai.KiviError("No speech was detected. Please try recording again.", 422)
+                    raise ai.SeeReqError("No speech was detected. Please try recording again.", 422)
                 return self._send(200, {"transcript": transcript})
 
             try:
@@ -153,7 +153,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, {"error": "Not found."})
         except BadRequest as e:
             self._send(400, {"error": str(e)})
-        except ai.KiviError as e:
+        except ai.SeeReqError as e:
             self._send(e.status, {"error": str(e)})
         except Exception as e:  # never leak internals to the client
             print(f"Unexpected error on {url.path}: {type(e).__name__}")
@@ -162,5 +162,5 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     status = "Sarvam AI connected" if ai.is_configured() else "SARVAM_API_KEY missing — demo mode only"
-    print(f"Kivi running at http://{HOST}:{PORT}  ({status})")
+    print(f"SeeReq running at http://{HOST}:{PORT}  ({status})")
     ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()

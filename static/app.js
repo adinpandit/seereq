@@ -1,6 +1,6 @@
 "use strict";
 
-/* Kivi frontend. All model output is rendered as escaped text — never as raw HTML. */
+/* SeeReq frontend. All model output is rendered as escaped text — never as raw HTML. */
 
 const DOCS = {
   bpd: { short: "BPD", name: "Business Process Design" },
@@ -9,7 +9,7 @@ const DOCS = {
 };
 const DOC_ORDER = ["bpd", "fsd", "csd"];
 const REQ_ID = "BR-001";
-const STORAGE_KEY = "kivi-session-v1";
+const STORAGE_KEY = "seereq-session-v1";
 const MAX_RECORD_SECONDS = 30;
 
 const $ = (sel) => document.querySelector(sel);
@@ -69,7 +69,7 @@ async function api(path, body, timeoutMs = 200000) {
     return data;
   } catch (e) {
     if (e.name === "AbortError") throw new Error("The request timed out. Please try again.");
-    if (e instanceof TypeError) throw new Error("Could not reach the Kivi server. Is it still running?");
+    if (e instanceof TypeError) throw new Error("Could not reach the SeeReq server. Is it still running?");
     throw e;
   } finally {
     clearTimeout(timer);
@@ -130,7 +130,7 @@ function renderBanner() {
 }
 
 function loadDemo() {
-  const d = window.KIVI_DEMO;
+  const d = window.SEEREQ_DEMO;
   state = Object.assign(freshState(), JSON.parse(JSON.stringify(d.state)), { demo: true });
   save();
   renderAll();
@@ -343,7 +343,7 @@ function renderAnalysis() {
   }
   if (!a) {
     body.innerHTML = `<div class="empty"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6M10 3v5l-5 9a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-5-9V3"/></svg>
-      <p>Kivi analyzes your requirement like a functional consultant: business objective, process area, gaps and ambiguities — then asks only the questions that matter.</p></div>`;
+      <p>SeeReq analyzes your requirement like a functional consultant: business objective, process area, gaps and ambiguities — then asks only the questions that matter.</p></div>`;
     return;
   }
 
@@ -494,7 +494,7 @@ async function regenerate() {
 }
 
 function fileName(type) {
-  return `Kivi_${type.toUpperCase()}_${REQ_ID}.md`.replace(/[^A-Za-z0-9_.-]/g, "_");
+  return `SeeReq_${type.toUpperCase()}_${REQ_ID}.md`.replace(/[^A-Za-z0-9_.-]/g, "_");
 }
 
 function download(name, text) {
@@ -567,7 +567,7 @@ function renderDocs() {
   } else {
     view.innerHTML = `<div class="doc-empty">${state.analysis
       ? `Generate the documents when the analysis looks right. Each document has a distinct purpose:<br><br><b>BPD</b> — the business process · <b>FSD</b> — testable system behavior · <b>CSD</b> — configuration decisions to validate`
-      : "Analyze a requirement first. Kivi will then draft a BPD, FSD and CSD from the requirement and your answers."}</div>`;
+      : "Analyze a requirement first. SeeReq will then draft a BPD, FSD and CSD from the requirement and your answers."}</div>`;
   }
 }
 
@@ -679,7 +679,7 @@ function bind() {
   $("#download-btn").addEventListener("click", () => state.docs[state.activeTab] && download(fileName(state.activeTab), state.docs[state.activeTab].markdown));
   $("#download-all").addEventListener("click", () => {
     const parts = DOC_ORDER.filter((t) => state.docs[t]).map((t) => state.docs[t].markdown);
-    download(`Kivi_All_${REQ_ID}.md`, parts.join("\n\n<div style=\"page-break-after: always\"></div>\n\n---\n\n"));
+    download(`SeeReq_All_${REQ_ID}.md`, parts.join("\n\n<div style=\"page-break-after: always\"></div>\n\n---\n\n"));
   });
   document.querySelectorAll("#tabs button").forEach((b) => b.addEventListener("click", () => { state.activeTab = b.dataset.tab; save(); renderDocs(); }));
   $("#new-btn").addEventListener("click", () => {

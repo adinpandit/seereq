@@ -21,7 +21,7 @@ LANGUAGES = {"hinglish", "hindi", "english"}
 LANGUAGE_LABELS = {"hinglish": "Hinglish", "hindi": "Hindi", "english": "English"}
 
 
-class KiviError(Exception):
+class SeeReqError(Exception):
     """An error whose message is safe to show to the user."""
 
     def __init__(self, message, status=502):
@@ -39,7 +39,7 @@ def is_configured():
 def client():
     global _client
     if not is_configured():
-        raise KiviError("Sarvam AI is not configured. Add SARVAM_API_KEY to .env and restart the server.", 503)
+        raise SeeReqError("Sarvam AI is not configured. Add SARVAM_API_KEY to .env and restart the server.", 503)
     if _client is None:
         _client = SarvamAI(api_subscription_key=os.environ["SARVAM_API_KEY"], timeout=TIMEOUT_SECONDS)
     return _client
@@ -52,18 +52,18 @@ def _call(fn, **kwargs):
     except ApiError as e:
         code = e.status_code
         if code in (401, 403):
-            raise KiviError("Sarvam AI rejected the API key. Check SARVAM_API_KEY in .env.", 502)
+            raise SeeReqError("Sarvam AI rejected the API key. Check SARVAM_API_KEY in .env.", 502)
         if code == 402:
-            raise KiviError("Your Sarvam AI account has no credits left. Add credits in the Sarvam dashboard.", 502)
+            raise SeeReqError("Your Sarvam AI account has no credits left. Add credits in the Sarvam dashboard.", 502)
         if code == 429:
-            raise KiviError("Sarvam AI rate limit reached. Wait a moment and try again.", 503)
+            raise SeeReqError("Sarvam AI rate limit reached. Wait a moment and try again.", 503)
         if code and 400 <= code < 500:
-            raise KiviError(f"Sarvam AI could not process the request (HTTP {code}).", 502)
-        raise KiviError("Sarvam AI is temporarily unavailable. Please try again.", 503)
+            raise SeeReqError(f"Sarvam AI could not process the request (HTTP {code}).", 502)
+        raise SeeReqError("Sarvam AI is temporarily unavailable. Please try again.", 503)
     except httpx.TimeoutException:
-        raise KiviError("Sarvam AI took too long to respond. Please try again.", 504)
+        raise SeeReqError("Sarvam AI took too long to respond. Please try again.", 504)
     except httpx.HTTPError:
-        raise KiviError("Could not reach Sarvam AI. Check your internet connection.", 503)
+        raise SeeReqError("Could not reach Sarvam AI. Check your internet connection.", 503)
 
 
 # ---------------------------------------------------------------- speech
@@ -182,7 +182,7 @@ def analyze(requirement, language, history):
         analysis = normalize_analysis(_parse_json(response.choices[0].message.content))
         if analysis:
             return analysis
-    raise KiviError("The AI returned an incomplete analysis. Please try again.", 502)
+    raise SeeReqError("The AI returned an incomplete analysis. Please try again.", 502)
 
 
 def readiness(analysis, history):
@@ -243,13 +243,13 @@ def _header(spec, requirement, language, analysis):
         "",
         "| Field | Value |",
         "|---|---|",
-        f"| Document ID | Kivi-{spec['short']}-BR-001 |",
+        f"| Document ID | SeeReq-{spec['short']}-BR-001 |",
         "| Business requirement | BR-001 |",
         "| Module | SAP EWM |",
         "| Version | Draft 0.1 |",
         f"| Status | {status} |",
         f"| Generated | {today} |",
-        f"| Prepared by | Kivi — AI-assisted ({CHAT_MODEL} via Sarvam AI) |",
+        f"| Prepared by | SeeReq — AI-assisted ({CHAT_MODEL} via Sarvam AI) |",
         f"| Source language | {LANGUAGE_LABELS[language]} |",
         "",
         f"> **Original requirement (verbatim):** {quoted}",
@@ -292,7 +292,7 @@ def generate_document(doc_type, requirement, language, history, analysis, relate
     choice = response.choices[0]
     body = _clean_markdown(choice.message.content)
     if len(body) < 200:
-        raise KiviError(f"The AI returned an empty {spec['short']}. Please regenerate it.", 502)
+        raise SeeReqError(f"The AI returned an empty {spec['short']}. Please regenerate it.", 502)
     truncated = getattr(choice, "finish_reason", None) == "length"
     if truncated:
         body += "\n\n> **Note:** This document was cut off by the model's length limit. Regenerate it for a complete version."
