@@ -316,3 +316,44 @@ details.list li { margin: 3px 0; }
   .voice-actions { flex-direction: row; }
   .stepper li { padding: 4px 8px; font-size: 12px; }
 }
+
+/* ---------- requirement model ---------- */
+.register { display: flex; flex-direction: column; border: 1px solid var(--line-2); border-radius: 8px; overflow: hidden; }
+.reg-row { display: grid; grid-template-columns: 64px 1fr auto; gap: 10px; align-items: start; padding: 8px 12px; border-bottom: 1px solid var(--line-2); font-size: 13.5px; }
+.reg-row:last-child { border-bottom: 0; }
+.reg-id { font-family: var(--mono); font-size: 12px; font-weight: 600; color: var(--accent); padding-top: 1px; }
+.reg-text .why { display: block; color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+.reg-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.reg-meta .src { font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.q-resolves { display: inline-block; font-size: 11px; font-weight: 700; color: var(--accent); background: var(--accent-soft); border-radius: 4px; padding: 0 6px; margin-left: 4px; }
+details.list { margin-top: 10px; }
+
+/* ---------- traceability check ---------- */
+.docs-error { margin: 0 22px 12px; }
+.check-panel { margin: 0 22px 14px; border: 1px solid var(--line); border-radius: 8px; background: #fbfbf9; }
+.check-panel summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; font-size: 13.5px; }
+.check-panel summary::-webkit-details-marker { display: none; }
+.check-panel details > :not(summary) { padding: 0 12px 12px; }
+.check-pill { font-size: 11.5px; font-weight: 800; border-radius: 999px; padding: 1px 9px; }
+.check-pill.ok { background: var(--ok-soft); color: var(--ok); }
+.check-pill.warn { background: var(--warn-soft); color: var(--warn); }
+.check-pill.bad { background: var(--bad-soft); color: var(--bad); }
+.issues { list-style: none; margin: 4px 0 0; padding: 0; font-size: 13px; max-height: 260px; overflow: auto; }
+.issues li { display: flex; gap: 8px; align-items: baseline; padding: 5px 0; border-top: 1px dashed var(--line-2); }
+.issues .lvl { font-size: 11px; font-weight: 800; border-radius: 4px; padding: 0 6px; flex: none; }
+.issues li.error .lvl { background: var(--bad-soft); color: var(--bad); }
+.issues li.warning .lvl { background: var(--warn-soft); color: var(--warn); }
+.issues .scope { font-size: 11.5px; font-weight: 700; color: var(--muted); flex: none; min-width: 52px; }
+
+/* ---------- diagrams and code ---------- */
+.doc .diagram, .doc .diagram-svg { margin: 14px 0; padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: #fff; overflow-x: auto; text-align: center; }
+.doc .diagram-svg svg { display: block; width: 100%; height: auto; margin: 0 auto; }
+.doc pre.mermaid-src, .doc pre.code { text-align: left; font-family: var(--mono); font-size: 12px; white-space: pre; margin: 0; overflow-x: auto; }
+.doc pre.code { background: var(--info-soft); padding: 10px 12px; border-radius: 6px; }
+.diagram-note { font-size: 12.5px; }
+
+@media (max-width: 640px) {
+  .reg-row { grid-template-columns: 1fr; gap: 4px; }
+  .reg-meta { flex-direction: row; align-items: center; justify-content: flex-start; }
+  .docs-error, .check-panel { margin-left: 16px; margin-right: 16px; }
+}

@@ -18,16 +18,15 @@ if env_file.exists():
             key, value = line.split("=", 1)
             os.environ.setdefault(key.strip(), value.strip())
 
-from seereq import ai  # noqa: E402  (needs the environment loaded first)
+from seereq import ai, baseline, documents  # noqa: E402  (needs the environment loaded first)
+from seereq import model as rm  # noqa: E402
 
 HOST = os.environ.get("SEEREQ_HOST", "127.0.0.1")
 PORT = int(os.environ.get("SEEREQ_PORT", "8787"))
-MAX_JSON_BYTES = 400_000
+MAX_JSON_BYTES = 1_500_000
 MAX_AUDIO_BYTES = 10_000_000
 MAX_REQUIREMENT = 4000
 MAX_ANSWER = 2000
-MAX_TURNS = 40
-MAX_RELATED_DOC = 60_000
 
 
 class BadRequest(Exception):
@@ -49,23 +48,18 @@ def _requirement(payload):
     return text.strip()
 
 
-def _history(payload):
-    history = payload.get("history") or []
-    if not isinstance(history, list) or len(history) > MAX_TURNS:
-        raise BadRequest("Invalid clarification history.")
-    turns = []
-    for t in history:
-        if not isinstance(t, dict) or not isinstance(t.get("question_en"), str):
-            raise BadRequest("Invalid clarification history.")
-        answer = t.get("answer") if isinstance(t.get("answer"), str) else ""
-        if len(answer) > MAX_ANSWER:
-            raise BadRequest(f"An answer is too long (max {MAX_ANSWER} characters).")
-        turns.append({
-            "question_en": t["question_en"][:500],
-            "topic": str(t.get("topic") or "")[:80],
-            "answer": answer.strip(),
-        })
-    return turns
+def _model(payload, required=True):
+    m = rm.normalize_model(payload.get("model"))
+    if required and not m:
+        raise BadRequest("Analyze the requirement first.")
+    return m
+
+
+def _plan(payload, m):
+    raw = payload.get("plan")
+    if not isinstance(raw, dict):
+        raise BadRequest("Build the requirement baseline first.")
+    return baseline.validate_plan(raw, m)  # never trust a client-supplied plan; re-validate it
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -131,24 +125,35 @@ class Handler(BaseHTTPRequestHandler):
             if url.path == "/api/analyze":
                 requirement = _requirement(payload)
                 language = _language(payload.get("language"))
-                history = _history(payload)
-                analysis = ai.analyze(requirement, language, history)
-                return self._send(200, {"analysis": analysis, "status": ai.readiness(analysis, history)})
+                answers = payload.get("answers")  # None = re-run without submitting the current round
+                if answers is not None:
+                    valid = isinstance(answers, dict) and all(isinstance(v, str) and len(v) <= MAX_ANSWER
+                                                              for v in answers.values())
+                    if not valid:
+                        raise BadRequest(f"Invalid answers (max {MAX_ANSWER} characters each).")
+                m = ai.analyze(requirement, language, _model(payload, required=False), answers)
+                return self._send(200, {"model": m})
+
+            if url.path == "/api/baseline":
+                m = _model(payload)
+                if not rm.live_decisions(m):
+                    raise BadRequest("No business decisions have been captured yet.")
+                return self._send(200, {"plan": ai.build_baseline(m)})
 
             if url.path == "/api/generate":
                 doc_type = payload.get("doc_type")
                 if doc_type not in ("bpd", "fsd", "csd"):
                     raise BadRequest("Unknown document type.")
-                analysis = ai.normalize_analysis(payload.get("analysis"))
-                if not analysis:
-                    raise BadRequest("Analyze the requirement before generating documents.")
-                related = payload.get("related") or {}
-                related = {k: v[:MAX_RELATED_DOC] for k, v in related.items()
-                           if k in ("bpd", "fsd", "csd") and k != doc_type and isinstance(v, str)}
-                markdown, truncated = ai.generate_document(
-                    doc_type, _requirement(payload), _language(payload.get("language")),
-                    _history(payload), analysis, related)
-                return self._send(200, {"markdown": markdown, "truncated": truncated})
+                m = _model(payload)
+                revision = payload.get("revision") if isinstance(payload.get("revision"), int) else 1
+                markdown, issues = ai.generate_document(doc_type, m, _plan(payload, m), max(1, min(revision, 99)))
+                return self._send(200, {"markdown": markdown, "issues": issues})
+
+            if url.path == "/api/check":
+                m = _model(payload)
+                docs = payload.get("docs") or {}
+                docs = {k: v for k, v in docs.items() if k in ("bpd", "fsd", "csd") and isinstance(v, str)}
+                return self._send(200, {"report": documents.check_set(docs, m, _plan(payload, m))})
 
             self._send(404, {"error": "Not found."})
         except BadRequest as e:

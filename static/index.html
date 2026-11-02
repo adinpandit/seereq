@@ -98,7 +98,7 @@
         <div id="analysis-body">
           <div class="empty">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6M10 3v5l-5 9a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-5-9V3"/></svg>
-            <p>SeeReq analyzes your requirement like a functional consultant: business objective, process area, gaps and ambiguities — then asks only the questions that matter.</p>
+            <p>SeeReq analyzes your requirement like a functional consultant: business objective, process area, decisions and open items — then asks only the questions that matter.</p>
           </div>
         </div>
       </section>
@@ -119,6 +119,8 @@
           <button class="btn btn-primary" id="generate-btn" type="button" disabled>Generate BPD, FSD &amp; CSD</button>
         </div>
       </div>
+      <div id="docs-error" class="inline-error docs-error" role="alert" hidden></div>
+      <div class="check-panel" id="check-panel" hidden></div>
       <div class="tabs" role="tablist" id="tabs">
         <button role="tab" data-tab="bpd"><b>BPD</b><span>Business Process Design</span><i class="tab-state"></i></button>
         <button role="tab" data-tab="fsd"><b>FSD</b><span>Functional Specification</span><i class="tab-state"></i></button>
@@ -142,6 +144,7 @@
   </div>
 
   <div class="toast" id="toast" role="status" hidden></div>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
   <script src="/demo.js"></script>
   <script src="/app.js"></script>
 </body>

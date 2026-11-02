@@ -1,6 +1,5 @@
 """Sarvam AI integration: speech-to-text, requirement analysis and document generation."""
 
-import datetime
 import json
 import os
 import re
@@ -9,7 +8,8 @@ import httpx
 from sarvamai import SarvamAI
 from sarvamai.core.api_error import ApiError
 
-from . import prompts
+from . import baseline, documents, prompts
+from . import model as rm
 
 # sarvam-105b reasons at length and often exhausts max_tokens on these prompts;
 # the conversations variant answers directly and is ~30x faster here.
@@ -83,7 +83,7 @@ def transcribe(audio, mime, language):
     return (result.transcript or "").strip()
 
 
-# ---------------------------------------------------------------- analysis
+# ---------------------------------------------------------------- model calls
 
 def _parse_json(text):
     text = (text or "").strip()
@@ -100,200 +100,167 @@ def _parse_json(text):
     return None
 
 
-def _str_list(value, limit=12):
-    if not isinstance(value, list):
-        return []
-    items = [str(v).strip() for v in value if isinstance(v, (str, int, float)) and str(v).strip()]
-    return items[:limit]
+def chat_json(user, max_tokens):
+    """One JSON-mode call with a single retry on malformed output. Tests replace this function."""
+    messages = [{"role": "system", "content": prompts.CONSULTANT_PERSONA}, {"role": "user", "content": user}]
+    for _ in range(2):
+        response = _call(client().chat.completions, model=CHAT_MODEL, messages=messages,
+                         response_format={"type": "json_object"}, max_tokens=max_tokens, temperature=0.2)
+        data = _parse_json(response.choices[0].message.content)
+        if isinstance(data, dict):
+            return data
+    raise SeeReqError("The AI returned an incomplete response. Please try again.", 502)
 
 
-def _text(value, fallback=""):
-    return value.strip() if isinstance(value, str) and value.strip() else fallback
+def chat_text(user, max_tokens):
+    """One free-text call. Returns (text, truncated). Tests replace this function."""
+    messages = [{"role": "system", "content": prompts.CONSULTANT_PERSONA}, {"role": "user", "content": user}]
+    response = _call(client().chat.completions, model=CHAT_MODEL, messages=messages,
+                     max_tokens=max_tokens, temperature=0.2)
+    choice = response.choices[0]
+    return choice.message.content or "", getattr(choice, "finish_reason", None) == "length"
 
 
-def normalize_analysis(data):
-    """Validate a model (or client-supplied) analysis object into a known shape."""
-    if not isinstance(data, dict):
-        return None
-    questions = []
-    for q in data.get("clarification_questions") or []:
-        if isinstance(q, str) and q.strip():
-            q = {"question": q, "question_en": q, "topic": ""}
-        if isinstance(q, dict) and _text(q.get("question")):
-            questions.append({
-                "question": _text(q.get("question")),
-                "question_en": _text(q.get("question_en"), _text(q.get("question"))),
-                "topic": _text(q.get("topic")),
-            })
-    analysis = {
-        "interpretation_en": _text(data.get("interpretation_en")),
-        "business_objective": _text(data.get("business_objective")),
-        "process_area": _text(data.get("process_area"), "Requires consultant confirmation"),
-        "expected_system_behavior": _text(data.get("expected_system_behavior")),
-        "confirmed_facts": _str_list(data.get("confirmed_facts")),
-        "business_rules": _str_list(data.get("business_rules")),
-        "ambiguities": _str_list(data.get("ambiguities")),
-        "missing_information": _str_list(data.get("missing_information")),
-        "contradictions": _str_list(data.get("contradictions")),
-        "clarification_questions": questions[:5],
-        "consultant_investigation": _str_list(data.get("consultant_investigation")),
-        "assumptions": _str_list(data.get("assumptions")),
-        "proposed_recommendations": _str_list(data.get("proposed_recommendations")),
-        "unresolved_items": _str_list(data.get("unresolved_items")),
-        "ready_for_documentation": data.get("ready_for_documentation") is True,
-        "readiness_reason": _text(data.get("readiness_reason")),
-    }
-    if not analysis["business_objective"] or not analysis["interpretation_en"]:
-        return None
-    return analysis
+# ---------------------------------------------------------------- context rendering
 
-
-def _conversation_text(requirement, language, history):
+def model_context(m, include_questions=True):
+    """The canonical requirement model as the AI sees it. Every call uses this same rendering."""
     lines = [
-        f'Original requirement (BR-001, as spoken/typed by the user): "{requirement}"',
-        f"User's preferred language: {LANGUAGE_LABELS[language]}",
+        f'Original requirement ({m["requirement_id"]}, verbatim): "{m["original_requirement"]}"',
+        f"User's preferred language: {LANGUAGE_LABELS.get(m['language'], 'English')}",
+        f"English interpretation: {m['interpretation_en'] or 'Not yet analysed'}",
+        f"Business objective: {m['business_objective'] or 'Not yet analysed'}",
+        f"Process area (proposed): {m['process_area'] or 'Not yet analysed'}",
+        f"Expected system behaviour: {m['expected_system_behavior'] or 'Not yet analysed'}",
+        "",
+        "Business decisions:",
     ]
-    if history:
-        lines.append("\nClarification so far:")
-        for i, turn in enumerate(history, 1):
-            answer = turn["answer"] or "(skipped — no answer given)"
-            lines.append(f"Q{i} [{turn.get('topic') or 'general'}]: {turn['question_en']}\nA{i}: {answer}")
-    else:
-        lines.append("\nNo clarification questions have been answered yet.")
+    live = rm.live_decisions(m)
+    lines += [f"- {d['id']} [{d['status'].upper()}; source: {d['source_ref'] or d['source']}] {d['description']}"
+              for d in live] or ["- None yet"]
+    superseded = [d for d in m["decisions"] if d["status"] == "superseded"]
+    if superseded:
+        lines += ["", "Superseded decisions (do not use):"]
+        lines += [f"- {d['id']} (replaced by {d['superseded_by']}) {d['description']}" for d in superseded]
+    lines += ["", "Open items:"]
+    lines += [f"- {o['id']} [{o['owner']}{', blocking' if o['blocking'] else ''}] {o['description']}"
+              + (f" — why it matters: {o['why_it_matters']}" if o["why_it_matters"] else "")
+              for o in rm.active_open_items(m)] or ["- None"]
+    resolved = [o for o in m["open_items"] if o["status"] == "resolved"]
+    if resolved:
+        lines += ["", "Resolved open items:"]
+        lines += [f"- {o['id']} resolved by {o['resolved_by']}: {o['description']}" for o in resolved]
+    if include_questions:
+        lines += ["", "Clarification record (verbatim):"]
+        lines += [f"{c['id']} (round {c['round']}) [{c['topic'] or 'general'}] Q: {c['question_en']}\n"
+                  f"   A: {c['answer'] if c['status'] == 'answered' else 'SKIPPED — no answer given'}"
+                  for c in m["clarifications"]] or ["None yet."]
     return "\n".join(lines)
 
 
-def analyze(requirement, language, history):
-    guide = prompts.LANGUAGE_GUIDE[language]
-    messages = [
-        {"role": "system", "content": prompts.CONSULTANT_PERSONA},
-        {"role": "user", "content": prompts.ANALYSIS_INSTRUCTIONS.replace("{language_guide}", guide)
-            + "\n\n" + _conversation_text(requirement, language, history)},
-    ]
-    for _ in range(2):  # one retry on malformed output
-        response = _call(
-            client().chat.completions,
-            model=CHAT_MODEL,
-            messages=messages,
-            response_format={"type": "json_object"},
-            max_tokens=4000,
-            temperature=0.2,
-        )
-        analysis = normalize_analysis(_parse_json(response.choices[0].message.content))
-        if analysis:
-            return analysis
-    raise SeeReqError("The AI returned an incomplete analysis. Please try again.", 502)
+def _plan_context(plan):
+    return json.dumps({k: plan[k] for k in ("process_steps", "functional_requirements", "acceptance_criteria",
+                                            "test_scenarios", "config_activities")}, ensure_ascii=False)
 
 
-def readiness(analysis, history):
-    """App-level readiness check; the model's flag alone is not trusted."""
-    has_core = bool(analysis["business_objective"] and analysis["expected_system_behavior"])
-    answered = sum(1 for t in history if t["answer"])
-    model_ready = analysis["ready_for_documentation"]
-    no_questions = not analysis["clarification_questions"]
-    if has_core and (model_ready or no_questions) and (answered > 0 or no_questions):
-        return "ready"
-    return "clarification"
+# ---------------------------------------------------------------- analysis
+
+def analyze(requirement, language, model_in, answers):
+    """Record answers (when submitted), ask the AI for an updated model, and merge it deterministically.
+
+    answers=None re-runs the analysis without touching pending questions; a dict submits the current round.
+    """
+    m = model_in or rm.new_model(requirement, language)
+    requirement_changed = m["original_requirement"] != requirement
+    m.update(original_requirement=requirement, language=language)
+    if answers is not None:
+        before = {c["id"] for c in m["clarifications"]}
+        rm.record_answers(m, answers)
+        new = [c for c in m["clarifications"] if c["id"] not in before and c["status"] == "answered"]
+        if new:
+            extract_decisions(m, new)
+    prompt = (prompts.ANALYSIS_INSTRUCTIONS.replace("{language_guide}", prompts.LANGUAGE_GUIDE[language])
+              + "\n\nCurrent requirement model:\n" + model_context(m))
+    if requirement_changed and model_in:
+        prompt += "\n\nNote: the user edited the original requirement; decisions sourced from BR-001 may need updating."
+    raw = chat_json(prompt, max_tokens=5000)
+    rm.merge_analysis(m, raw, requirement_changed=requirement_changed and bool(model_in))
+    if not m["business_objective"] or not m["interpretation_en"]:
+        raise SeeReqError("The AI returned an incomplete analysis. Please try again.", 502)
+    return m
+
+
+def extract_decisions(m, clarifications):
+    """Focused pass that turns each new answer into atomic, confirmed decisions before the wider analysis."""
+    record = "\n".join(f"{c['id']} Q: {c['question_en']}\n   A (verbatim): {c['answer']}" for c in clarifications)
+    raw = chat_json(prompts.EXTRACTION_INSTRUCTIONS + "\n\nAnswers:\n" + record, max_tokens=3000)
+    ids = {c["id"] for c in clarifications}
+    items = [{"description": d.get("description"), "source": "clarification", "source_ref": d.get("source_ref"),
+              "status": "confirmed", "category": d.get("category")}
+             for d in raw.get("decisions") or [] if isinstance(d, dict) and d.get("source_ref") in ids]
+    notes = []
+    rm.merge_decisions(m, items, notes)
+    m["notes"] = notes
+
+
+# ---------------------------------------------------------------- baseline
+
+def build_baseline(m):
+    prompt = prompts.BASELINE_INSTRUCTIONS + "\n\nCanonical requirement model:\n" + model_context(m)
+    plan = baseline.validate_plan(chat_json(prompt, max_tokens=8000), m)
+    if plan["uncovered_decisions"] or not plan["functional_requirements"]:
+        retry = prompt + ("\n\nYour previous baseline did not cover these confirmed decisions with any functional "
+                          f"requirement: {', '.join(plan['uncovered_decisions']) or 'all of them'}. "
+                          "Return the complete baseline again and cover every confirmed decision.")
+        second = baseline.validate_plan(chat_json(retry, max_tokens=8000), m)
+        if len(second["uncovered_decisions"]) < len(plan["uncovered_decisions"]) or not plan["functional_requirements"]:
+            plan = second
+    return plan
 
 
 # ---------------------------------------------------------------- documents
 
-def _bullets(items):
-    return "\n".join(f"- {i}" for i in items) if items else "- None recorded"
-
-
-def _context_text(requirement, language, history, analysis):
-    a = analysis
-    return "\n".join([
-        _conversation_text(requirement, language, history),
-        "",
-        "Analysis (validated):",
-        f"English interpretation: {a['interpretation_en']}",
-        f"Business objective: {a['business_objective']}",
-        f"Process area (proposed): {a['process_area']}",
-        f"Expected system behaviour: {a['expected_system_behavior']}",
-        "Confirmed facts:\n" + _bullets(a["confirmed_facts"]),
-        "Business rules:\n" + _bullets(a["business_rules"]),
-        "Contradictions:\n" + _bullets(a["contradictions"]),
-        "Assumptions:\n" + _bullets(a["assumptions"]),
-        "Proposed recommendations (not confirmed):\n" + _bullets(a["proposed_recommendations"]),
-        "Consultant investigation items:\n" + _bullets(a["consultant_investigation"]),
-        "Unresolved items:\n" + _bullets(a["unresolved_items"] + a["missing_information"]),
-    ])
+def _doc_prompt(doc_type, m, plan, feedback=""):
+    headings = "\n".join(f"## {t}" for t in documents.section_titles(doc_type)[1:])
+    parts = [prompts.DOC_GUIDANCE[doc_type], prompts.DOC_RULES.replace("{headings}", headings),
+             "Canonical requirement model (source of truth):\n" + model_context(m),
+             "Requirement baseline (use these IDs exactly):\n" + _plan_context(plan)]
+    if feedback:
+        parts.append("Your previous draft had these problems. Fix them in this version:\n" + feedback)
+    return "\n\n".join(parts)
 
 
 def _clean_markdown(text):
     text = (text or "").strip()
-    text = re.sub(r"^```(?:markdown|md)?\s*|\s*```$", "", text).strip()
-    # The application writes the title; drop any title the model added.
-    lines = text.splitlines()
-    while lines and (lines[0].startswith("# ") or not lines[0].strip()):
-        lines.pop(0)
-    return "\n".join(lines).strip()
+    return re.sub(r"^```(?:markdown|md)?\s*|\s*```$", "", text).strip()
 
 
-def _header(spec, requirement, language, analysis):
-    open_items = analysis["unresolved_items"] + analysis["missing_information"]
-    status = f"DRAFT — {len(open_items)} open item(s), requires consultant review" if open_items \
-        else "DRAFT — requires consultant review"
-    today = datetime.date.today().isoformat()
-    quoted = requirement.replace("\n", " ")
-    parts = [
-        f"# {spec['name']} ({spec['short']})",
-        "",
-        "| Field | Value |",
-        "|---|---|",
-        f"| Document ID | SeeReq-{spec['short']}-BR-001 |",
-        "| Business requirement | BR-001 |",
-        "| Module | SAP EWM |",
-        "| Version | Draft 0.1 |",
-        f"| Status | {status} |",
-        f"| Generated | {today} |",
-        f"| Prepared by | SeeReq — AI-assisted ({CHAT_MODEL} via Sarvam AI) |",
-        f"| Source language | {LANGUAGE_LABELS[language]} |",
-        "",
-        f"> **Original requirement (verbatim):** {quoted}",
-        ">",
-        f"> **English interpretation:** {analysis['interpretation_en']}",
-        "",
-        "> **AI-assisted draft.** Content was generated from the captured requirement and clarification answers. "
-        "It has not been approved by the business and has not been validated against an SAP system. "
-        "Items labelled PROPOSED or UNKNOWN require consultant validation.",
-    ]
-    if open_items:
-        parts += ["", "**Open items at time of generation:**", "", _bullets(open_items)]
-    return "\n".join(parts)
-
-
-def generate_document(doc_type, requirement, language, history, analysis, related):
-    spec = prompts.DOC_SPECS[doc_type]
-    related_text = ""
-    for key, content in related.items():
-        if content:
-            related_text += (f"Already drafted {prompts.DOC_SPECS[key]['short']} (keep identifiers and decisions "
-                             f"consistent with it; flag any discrepancy rather than silently changing decisions):\n"
-                             f"<<<\n{content}\n>>>\n\n")
-    user = "\n\n".join([
-        spec["instructions"],
-        prompts.DOC_CONTROL_NOTE,
-        prompts.DOC_INSTRUCTIONS_TAIL.format(
-            context=_context_text(requirement, language, history, analysis),
-            related=related_text,
-            short=spec["short"],
-        ),
-    ])
-    response = _call(
-        client().chat.completions,
-        model=CHAT_MODEL,
-        messages=[{"role": "system", "content": prompts.CONSULTANT_PERSONA}, {"role": "user", "content": user}],
-        max_tokens=8000,
-        temperature=0.2,
-    )
-    choice = response.choices[0]
-    body = _clean_markdown(choice.message.content)
-    if len(body) < 200:
-        raise SeeReqError(f"The AI returned an empty {spec['short']}. Please regenerate it.", 502)
-    truncated = getattr(choice, "finish_reason", None) == "length"
-    if truncated:
-        body += "\n\n> **Note:** This document was cut off by the model's length limit. Regenerate it for a complete version."
-    return _header(spec, requirement, language, analysis) + "\n\n---\n\n" + body, truncated
+def generate_document(doc_type, m, plan, revision=1):
+    """Generate one document from the shared model and baseline; repair once if checks fail."""
+    best = None
+    feedback = ""
+    for attempt in range(2):
+        body, truncated = chat_text(_doc_prompt(doc_type, m, plan, feedback), max_tokens=8000)
+        body = _clean_markdown(body)
+        if len(body) < 200:
+            if attempt == 0:
+                feedback = "The draft was empty. Write all sections."
+                continue
+            break
+        markdown, missing = documents.assemble(doc_type, body, m, plan, revision, CHAT_MODEL)
+        issues = documents.check_document(doc_type, markdown, m, plan)
+        if truncated:
+            issues.append({"level": "warning", "doc": doc_type.upper(),
+                           "message": "The model hit its length limit; later sections may be incomplete."})
+        score = sum(3 if i["level"] == "error" else 1 for i in issues) + 2 * len(missing)
+        if best is None or score < best[0]:
+            best = (score, markdown, issues)
+        repairable = [i["message"] for i in issues if i["level"] == "error" or "SAP detail" in i["message"]]
+        if missing:
+            repairable.append("These sections were missing: " + ", ".join(missing))
+        if not repairable:
+            break
+        feedback = "\n".join(f"- {r}" for r in repairable)
+    if best is None:
+        raise SeeReqError(f"The AI returned an empty {doc_type.upper()}. Please regenerate it.", 502)
+    return best[1], best[2]
